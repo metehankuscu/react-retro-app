@@ -49,10 +49,10 @@ http://localhost:3000/
 ```
 
 ### Login Page
-<img src="https://i.ibb.co/0RsjcFVT/1.png" alt="1" border="0" width="100%"/>
+<img src="https://i.ibb.co/0RsjcFVT/1.png" alt="1" border="0" width="100%" />
 
 ### Retrospective Page
-<img src="https://i.ibb.co/23wmXQtM/2.png" alt="2" border="0" width="100%"/>
+<img src="https://i.ibb.co/23wmXQtM/2.png" alt="2" border="0" width="100%" />
 
 ## 🤝 Contributing
 If you'd like to contribute, please **fork the repository** and use a **feature branch**. Pull requests are welcome!
