@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import "./App.css";
+import { io } from 'socket.io-client';
 
 const CATEGORIES = {
   WENT_WELL: "went_well",
@@ -91,32 +92,49 @@ const LobbyScreen = ({ onJoinRoom, onCreateRoom }) => {
   );
 };
 
-// WebSocket connection function
-const createWebSocket = (setConnected, roomId, username) => {
-  const isProduction = process.env.NODE_ENV === 'production';
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsHost = window.location.host;
+// Socket.IO connection function
+const createSocketConnection = (setConnected, roomId, username) => {
+  const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:10000';
   
-  const ws = new WebSocket(
-    `${wsProtocol}://${wsHost}/api/socket?roomId=${roomId}&username=${encodeURIComponent(username)}`
-  );
+  const socket = io(SOCKET_URL, {
+    query: { roomId, username },
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    transports: ['websocket', 'polling'],
+  });
 
-  ws.onopen = () => {
-    console.log("WebSocket Connected");
+  socket.io.on("error", (error) => {
+    console.error('Socket.IO Altyapı Hatası:', error);
+  });
+
+  socket.io.on("reconnect_attempt", (attempt) => {
+    console.log(`Yeniden bağlanma denemesi ${attempt}`);
+  });
+
+  socket.io.on("reconnect", (attempt) => {
+    console.log(`${attempt} denemede yeniden bağlanıldı`);
+  });
+
+  socket.io.on("reconnect_error", (error) => {
+    console.error('Yeniden bağlanma hatası:', error);
+  });
+
+  socket.on('connect', () => {
+    console.log('Socket.IO Bağlandı');
     setConnected(true);
-  };
+  });
 
-  ws.onclose = () => {
-    console.log("WebSocket Disconnected");
+  socket.on('disconnect', () => {
+    console.log('Socket.IO Bağlantısı Kesildi');
     setConnected(false);
-  };
+  });
 
-  ws.onerror = (error) => {
-    console.error("WebSocket Error:", error);
+  socket.on('connect_error', (error) => {
+    console.error('Socket.IO Bağlantı Hatası:', error);
     setConnected(false);
-  };
+  });
 
-  return ws;
+  return socket;
 };
 
 const Board = ({
@@ -200,99 +218,56 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
   const [connected, setConnected] = useState(false);
   const [newItem, setNewItem] = useState("");
   const [activeCategory, setActiveCategory] = useState("went_well");
-  const [ws, setWs] = useState(null);
+  const [socket, setSocket] = useState(null);
   const [isRoomOwner, setIsRoomOwner] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
   const inputRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 5;
 
   useEffect(() => {
-    const connectWebSocket = () => {
-      const socket = createWebSocket(setConnected, roomId, username);
+    const socket = createSocketConnection(setConnected, roomId, username);
+    setSocket(socket);
 
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
+    socket.on('initial-state', (data) => {
+      setItems(data.items);
+      setIsRoomOwner(data.isRoomOwner);
+      setIsHidden(data.isHidden);
+    });
 
-          switch (message.type) {
-            case "initial-state":
-              // Use empty state if items is undefined
-              setItems(
-                message.data.items || {
-                  went_well: [],
-                  to_improve: [],
-                  action_items: [],
-                }
-              );
-              setIsRoomOwner(message.data.isRoomOwner || false);
-              setIsHidden(message.data.isHidden || false);
-              break;
-            case "room-not-found":
-              alert("Room not found!");
-              onDisconnect();
-              break;
-            case "item-added":
-              const { category, item } = message.payload;
-              setItems((prev) => ({
-                ...prev,
-                [category]: [...(prev[category] || []), item],
-              }));
-              break;
-            case "item-removed":
-              const { category: removeCat, itemId } = message.payload;
-              setItems((prev) => ({
-                ...prev,
-                [removeCat]: prev[removeCat].filter(
-                  (item) => item.id !== itemId
-                ),
-              }));
-              break;
-            case "item-moved":
-              const { source, destination, item: movedItem } = message.payload;
-              setItems((prev) => {
-                const newItems = { ...prev };
-                newItems[source.droppableId] = newItems[
-                  source.droppableId
-                ].filter((i) => i.id !== movedItem.id);
-                newItems[destination.droppableId].splice(
-                  destination.index,
-                  0,
-                  movedItem
-                );
-                return newItems;
-              });
-              break;
-            case "visibility-changed":
-              setIsHidden(message.payload.isHidden);
-              break;
-          }
-        } catch (error) {
-          console.error("Message handling error:", error);
-        }
-      };
+    socket.on('item-added', ({ category, item }) => {
+      setItems((prev) => ({
+        ...prev,
+        [category]: [...prev[category], item],
+      }));
+    });
 
-      socket.onclose = () => {
-        setConnected(false);
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          reconnectAttemptsRef.current += 1;
-          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
-        }
-      };
+    socket.on('item-removed', ({ category, itemId }) => {
+      setItems((prev) => ({
+        ...prev,
+        [category]: prev[category].filter((item) => item.id !== itemId),
+      }));
+    });
 
-      setWs(socket);
-    };
+    socket.on('item-moved', ({ source, destination, item }) => {
+      setItems((prev) => {
+        const newItems = { ...prev };
+        newItems[source.droppableId] = newItems[source.droppableId].filter(
+          (i) => i.id !== item.id
+        );
+        newItems[destination.droppableId].splice(destination.index, 0, item);
+        return newItems;
+      });
+    });
 
-    connectWebSocket();
+    socket.on('visibility-changed', ({ isHidden }) => {
+      setIsHidden(isHidden);
+    });
+
+    socket.on('owner-changed', ({ newOwner }) => {
+      setIsRoomOwner(username === newOwner);
+    });
 
     return () => {
-      if (ws) {
-        ws.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
+      socket.disconnect();
     };
   }, [roomId, username]);
 
@@ -312,15 +287,10 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
       likes: [],
     };
 
-    ws.send(
-      JSON.stringify({
-        type: "add-item",
-        payload: {
-          category: activeCategory,
-          item,
-        },
-      })
-    );
+    socket.emit('add-item', {
+      category: activeCategory,
+      item,
+    });
 
     setNewItem("");
   };
@@ -330,7 +300,6 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
 
     const { source, destination, draggableId } = result;
 
-    // Skip if dropped in the same position
     if (
       source.droppableId === destination.droppableId &&
       source.index === destination.index
@@ -338,34 +307,20 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
       return;
     }
 
-    // Find the moved item
-    const sourceItems = items[source.droppableId];
-    const [movedItem] = sourceItems.filter((item) => item.id === draggableId);
-
-    ws.send(
-      JSON.stringify({
-        type: "move-item",
-        payload: {
-          source,
-          destination,
-          itemId: draggableId,
-        },
-      })
-    );
+    socket.emit('move-item', {
+      source,
+      destination,
+      itemId: draggableId,
+    });
   };
 
   const removeItem = (category, itemId) => {
     if (!connected) return;
 
-    ws.send(
-      JSON.stringify({
-        type: "remove-item",
-        payload: {
-          category,
-          itemId,
-        },
-      })
-    );
+    socket.emit('remove-item', {
+      category,
+      itemId,
+    });
   };
 
   const handleKeyPress = (e) => {
@@ -378,14 +333,7 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
   const toggleVisibility = () => {
     if (!isRoomOwner) return;
 
-    ws.send(
-      JSON.stringify({
-        type: "toggle-visibility",
-        payload: {
-          roomId,
-        },
-      })
-    );
+    socket.emit('toggle-visibility');
   };
 
   return (
