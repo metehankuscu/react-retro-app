@@ -2,6 +2,10 @@
 
 This is a **Retrospective App** designed for Agile teams to facilitate retrospective meetings and improve collaboration.
 
+## 🌐 Live URL
+
+[Retrospective App](https://react-retro-app.vercel.app/)
+
 ## 📌 Installation
 
 Follow the steps below to set up and run the project.

@@ -93,16 +93,12 @@ const LobbyScreen = ({ onJoinRoom, onCreateRoom }) => {
 
 // WebSocket connection function
 const createWebSocket = (setConnected, roomId, username) => {
-
-  const WS_URL = process.env.REACT_APP_WS_URL || window.location.hostname;
-
-  const protocol = WS_URL.includes("ngrok") ? "wss" : "ws";
-  const port = WS_URL.includes("ngrok") ? "" : ":10000";
-
+  const isProduction = process.env.NODE_ENV === 'production';
+  const wsProtocol = isProduction ? 'wss' : 'ws';
+  const wsHost = isProduction ? window.location.host : `${window.location.hostname}:10000`;
+  
   const ws = new WebSocket(
-    `${protocol}://${WS_URL}${port}?roomId=${roomId}&username=${encodeURIComponent(
-      username
-    )}`
+    `${wsProtocol}://${wsHost}/api/socket?roomId=${roomId}&username=${encodeURIComponent(username)}`
   );
 
   ws.onopen = () => {
