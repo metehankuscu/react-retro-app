@@ -104,33 +104,33 @@ const createSocketConnection = (setConnected, roomId, username) => {
   });
 
   socket.io.on("error", (error) => {
-    console.error('Socket.IO Altyapı Hatası:', error);
+    console.error('Socket.IO Infrastructure Error:', error);
   });
 
   socket.io.on("reconnect_attempt", (attempt) => {
-    console.log(`Yeniden bağlanma denemesi ${attempt}`);
+    console.log(`Reconnection attempt ${attempt}`);
   });
 
   socket.io.on("reconnect", (attempt) => {
-    console.log(`${attempt} denemede yeniden bağlanıldı`);
+    console.log(`Reconnected after ${attempt} attempts`);
   });
 
   socket.io.on("reconnect_error", (error) => {
-    console.error('Yeniden bağlanma hatası:', error);
+    console.error('Reconnection error:', error);
   });
 
   socket.on('connect', () => {
-    console.log('Socket.IO Bağlandı');
+    console.log('Socket.IO Connected');
     setConnected(true);
   });
 
   socket.on('disconnect', () => {
-    console.log('Socket.IO Bağlantısı Kesildi');
+    console.log('Socket.IO Disconnected');
     setConnected(false);
   });
 
   socket.on('connect_error', (error) => {
-    console.error('Socket.IO Bağlantı Hatası:', error);
+    console.error('Socket.IO Connection Error:', error);
     setConnected(false);
   });
 
@@ -156,7 +156,6 @@ const Board = ({
           }`}
         >
           {(items[categoryId] || []).map((item, index) => {
-            // If item is hidden and user is not the item owner and not the room owner, hide the content
             const shouldHideContent =
               isHidden && item.author !== currentUser && !isRoomOwner;
 
@@ -271,7 +270,6 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
     };
   }, [roomId, username]);
 
-  // Input focus
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -431,7 +429,6 @@ const App = () => {
   };
 
   const handleCreateRoom = async (username) => {
-    // Generate new room ID (will be handled on server side)
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     setRoomState({
       inRoom: true,
