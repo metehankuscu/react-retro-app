@@ -94,8 +94,8 @@ const LobbyScreen = ({ onJoinRoom, onCreateRoom }) => {
 // WebSocket connection function
 const createWebSocket = (setConnected, roomId, username) => {
   const isProduction = process.env.NODE_ENV === 'production';
-  const wsProtocol = isProduction ? 'wss' : 'ws';
-  const wsHost = isProduction ? window.location.host : `${window.location.hostname}:10000`;
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsHost = window.location.host;
   
   const ws = new WebSocket(
     `${wsProtocol}://${wsHost}/api/socket?roomId=${roomId}&username=${encodeURIComponent(username)}`
