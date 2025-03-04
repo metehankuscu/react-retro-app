@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import "./App.css";
+import { io } from 'socket.io-client';
 
 const CATEGORIES = {
   WENT_WELL: "went_well",
@@ -91,36 +92,49 @@ const LobbyScreen = ({ onJoinRoom, onCreateRoom }) => {
   );
 };
 
-// WebSocket connection function
-const createWebSocket = (setConnected, roomId, username) => {
+// Socket.IO connection function
+const createSocketConnection = (setConnected, roomId, username) => {
+  const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:10000';
+  
+  const socket = io(SOCKET_URL, {
+    query: { roomId, username },
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    transports: ['websocket', 'polling'],
+  });
 
-  const WS_URL = process.env.REACT_APP_WS_URL || window.location.hostname;
+  socket.io.on("error", (error) => {
+    console.error('Socket.IO Infrastructure Error:', error);
+  });
 
-  const protocol = WS_URL.includes("ngrok") ? "wss" : "ws";
-  const port = WS_URL.includes("ngrok") ? "" : ":10000";
+  socket.io.on("reconnect_attempt", (attempt) => {
+    console.log(`Reconnection attempt ${attempt}`);
+  });
 
-  const ws = new WebSocket(
-    `${protocol}://${WS_URL}${port}?roomId=${roomId}&username=${encodeURIComponent(
-      username
-    )}`
-  );
+  socket.io.on("reconnect", (attempt) => {
+    console.log(`Reconnected after ${attempt} attempts`);
+  });
 
-  ws.onopen = () => {
-    console.log("WebSocket Connected");
+  socket.io.on("reconnect_error", (error) => {
+    console.error('Reconnection error:', error);
+  });
+
+  socket.on('connect', () => {
+    console.log('Socket.IO Connected');
     setConnected(true);
-  };
+  });
 
-  ws.onclose = () => {
-    console.log("WebSocket Disconnected");
+  socket.on('disconnect', () => {
+    console.log('Socket.IO Disconnected');
     setConnected(false);
-  };
+  });
 
-  ws.onerror = (error) => {
-    console.error("WebSocket Error:", error);
+  socket.on('connect_error', (error) => {
+    console.error('Socket.IO Connection Error:', error);
     setConnected(false);
-  };
+  });
 
-  return ws;
+  return socket;
 };
 
 const Board = ({
@@ -142,7 +156,6 @@ const Board = ({
           }`}
         >
           {(items[categoryId] || []).map((item, index) => {
-            // If item is hidden and user is not the item owner and not the room owner, hide the content
             const shouldHideContent =
               isHidden && item.author !== currentUser && !isRoomOwner;
 
@@ -204,103 +217,59 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
   const [connected, setConnected] = useState(false);
   const [newItem, setNewItem] = useState("");
   const [activeCategory, setActiveCategory] = useState("went_well");
-  const [ws, setWs] = useState(null);
+  const [socket, setSocket] = useState(null);
   const [isRoomOwner, setIsRoomOwner] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
   const inputRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 5;
 
   useEffect(() => {
-    const connectWebSocket = () => {
-      const socket = createWebSocket(setConnected, roomId, username);
+    const socket = createSocketConnection(setConnected, roomId, username);
+    setSocket(socket);
 
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
+    socket.on('initial-state', (data) => {
+      setItems(data.items);
+      setIsRoomOwner(data.isRoomOwner);
+      setIsHidden(data.isHidden);
+    });
 
-          switch (message.type) {
-            case "initial-state":
-              // Use empty state if items is undefined
-              setItems(
-                message.data.items || {
-                  went_well: [],
-                  to_improve: [],
-                  action_items: [],
-                }
-              );
-              setIsRoomOwner(message.data.isRoomOwner || false);
-              setIsHidden(message.data.isHidden || false);
-              break;
-            case "room-not-found":
-              alert("Room not found!");
-              onDisconnect();
-              break;
-            case "item-added":
-              const { category, item } = message.payload;
-              setItems((prev) => ({
-                ...prev,
-                [category]: [...(prev[category] || []), item],
-              }));
-              break;
-            case "item-removed":
-              const { category: removeCat, itemId } = message.payload;
-              setItems((prev) => ({
-                ...prev,
-                [removeCat]: prev[removeCat].filter(
-                  (item) => item.id !== itemId
-                ),
-              }));
-              break;
-            case "item-moved":
-              const { source, destination, item: movedItem } = message.payload;
-              setItems((prev) => {
-                const newItems = { ...prev };
-                newItems[source.droppableId] = newItems[
-                  source.droppableId
-                ].filter((i) => i.id !== movedItem.id);
-                newItems[destination.droppableId].splice(
-                  destination.index,
-                  0,
-                  movedItem
-                );
-                return newItems;
-              });
-              break;
-            case "visibility-changed":
-              setIsHidden(message.payload.isHidden);
-              break;
-          }
-        } catch (error) {
-          console.error("Message handling error:", error);
-        }
-      };
+    socket.on('item-added', ({ category, item }) => {
+      setItems((prev) => ({
+        ...prev,
+        [category]: [...prev[category], item],
+      }));
+    });
 
-      socket.onclose = () => {
-        setConnected(false);
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          reconnectAttemptsRef.current += 1;
-          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
-        }
-      };
+    socket.on('item-removed', ({ category, itemId }) => {
+      setItems((prev) => ({
+        ...prev,
+        [category]: prev[category].filter((item) => item.id !== itemId),
+      }));
+    });
 
-      setWs(socket);
-    };
+    socket.on('item-moved', ({ source, destination, item }) => {
+      setItems((prev) => {
+        const newItems = { ...prev };
+        newItems[source.droppableId] = newItems[source.droppableId].filter(
+          (i) => i.id !== item.id
+        );
+        newItems[destination.droppableId].splice(destination.index, 0, item);
+        return newItems;
+      });
+    });
 
-    connectWebSocket();
+    socket.on('visibility-changed', ({ isHidden }) => {
+      setIsHidden(isHidden);
+    });
+
+    socket.on('owner-changed', ({ newOwner }) => {
+      setIsRoomOwner(username === newOwner);
+    });
 
     return () => {
-      if (ws) {
-        ws.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
+      socket.disconnect();
     };
   }, [roomId, username]);
 
-  // Input focus
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -316,15 +285,10 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
       likes: [],
     };
 
-    ws.send(
-      JSON.stringify({
-        type: "add-item",
-        payload: {
-          category: activeCategory,
-          item,
-        },
-      })
-    );
+    socket.emit('add-item', {
+      category: activeCategory,
+      item,
+    });
 
     setNewItem("");
   };
@@ -334,7 +298,6 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
 
     const { source, destination, draggableId } = result;
 
-    // Skip if dropped in the same position
     if (
       source.droppableId === destination.droppableId &&
       source.index === destination.index
@@ -342,34 +305,20 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
       return;
     }
 
-    // Find the moved item
-    const sourceItems = items[source.droppableId];
-    const [movedItem] = sourceItems.filter((item) => item.id === draggableId);
-
-    ws.send(
-      JSON.stringify({
-        type: "move-item",
-        payload: {
-          source,
-          destination,
-          itemId: draggableId,
-        },
-      })
-    );
+    socket.emit('move-item', {
+      source,
+      destination,
+      itemId: draggableId,
+    });
   };
 
   const removeItem = (category, itemId) => {
     if (!connected) return;
 
-    ws.send(
-      JSON.stringify({
-        type: "remove-item",
-        payload: {
-          category,
-          itemId,
-        },
-      })
-    );
+    socket.emit('remove-item', {
+      category,
+      itemId,
+    });
   };
 
   const handleKeyPress = (e) => {
@@ -382,14 +331,7 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
   const toggleVisibility = () => {
     if (!isRoomOwner) return;
 
-    ws.send(
-      JSON.stringify({
-        type: "toggle-visibility",
-        payload: {
-          roomId,
-        },
-      })
-    );
+    socket.emit('toggle-visibility');
   };
 
   return (
@@ -487,7 +429,6 @@ const App = () => {
   };
 
   const handleCreateRoom = async (username) => {
-    // Generate new room ID (will be handled on server side)
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     setRoomState({
       inRoom: true,
