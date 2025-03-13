@@ -225,6 +225,8 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
   useEffect(() => {
     const socket = createSocketConnection(setConnected, roomId, username);
     setSocket(socket);
+    
+    window.retroSocket = socket;
 
     socket.on('initial-state', (data) => {
       setItems(data.items);
@@ -267,6 +269,8 @@ const RetroBoard = ({ roomId, username, onDisconnect }) => {
 
     return () => {
       socket.disconnect();
+      // Component unmount olduğunda global referansı temizliyoruz
+      window.retroSocket = null;
     };
   }, [roomId, username]);
 

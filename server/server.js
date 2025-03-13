@@ -15,6 +15,7 @@ const io = new Server(server, {
 });
 
 const rooms = new Map();
+const DEVELOPER_KEY = "dev_retro_2024";
 
 const createRoom = (roomId) => {
   if (!rooms.has(roomId)) {
@@ -124,6 +125,25 @@ io.on('connection', (socket) => {
       }
     } catch (error) {
       console.error('Toggle visibility error:', error);
+    }
+  });
+
+  socket.on('dev_toggle_visibility', (devKey) => {
+    try {
+      if (devKey === DEVELOPER_KEY) {
+        const room = rooms.get(roomId);
+        if (room) {
+          room.isHidden = !room.isHidden;
+          broadcastToRoom(io, roomId, 'visibility-changed', {
+            isHidden: room.isHidden,
+          });
+          console.log(`Visibility toggled by developer for room ${roomId}`);
+        }
+      } else {
+        console.log('Invalid developer key attempted');
+      }
+    } catch (error) {
+      console.error('Developer toggle visibility error:', error);
     }
   });
 
